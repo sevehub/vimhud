@@ -252,11 +252,11 @@ enddef
 
 def CompFile(buf: number): string
   var s = '%#HudFile# %<' .. FileName(buf)
-  if getbufvar(buf, '&modified') != 0
+  if getbufvar(buf, '&modified') != false
     s ..= ' %#HudAlert#[+]%#HudFile#'
   endif
-  if getbufvar(buf, '&readonly') != 0
-    s ..= ' [RO]'
+  if getbufvar(buf, '&readonly') != false
+     s ..= ' [RO]'
   endif
   return s .. ' %*'
 enddef
@@ -314,9 +314,9 @@ def Component(name: string, buf: number): string
   if name == 'mode'
     return CompMode()
   elseif name == 'git'
-    return CompGit(buf)
+     return CompGit(buf)
   elseif name == 'file'
-    return CompFile(buf)
+     return CompFile(buf)
   elseif name == 'keys'
     return CompKeys()
   elseif name == 'recording'
