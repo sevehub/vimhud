@@ -1,0 +1,248 @@
+*vimhud.txt*  Statusline HUD with mode colors and key display
+
+                         VIMHUD  REFERENCE MANUAL
+
+==============================================================================
+CONTENTS                                                      *vimhud-contents*
+
+    1. Introduction ............................ |vimhud-introduction|
+    2. Requirements ............................ |vimhud-requirements|
+    3. Commands ................................ |vimhud-commands|
+    4. Options ................................. |vimhud-options|
+    5. Highlight groups ........................ |vimhud-highlight|
+    6. Animation ............................... |vimhud-animation|
+    7. Interaction with other plugins .......... |vimhud-compatibility|
+    8. Limitations ............................. |vimhud-limitations|
+    9. Components .............................. |vimhud-components|
+
+==============================================================================
+1. INTRODUCTION                                           *vimhud-introduction*
+
+Vimhud replaces the 'statusline' with a bar that shows the current mode as
+a colored block, the file name, and the pending key sequence, including the
+|mapleader| key. A change of mode starts a short color fade, which makes the
+transition visible in screencasts and while learning motions. The plugin is
+written in |vim9script|.
+
+The statusline is set to a |:set-!| expression that calls the global function
+g:HudLine(). The function has no side effects and can be called manually for
+testing: >
+    :echo g:HudLine()
+<
+==============================================================================
+2. REQUIREMENTS                                           *vimhud-requirements*
+
+Vim 9.0 or later is required, and Vim 9.1 is recommended. Neovim is not
+supported, because it does not implement |vim9script|.
+
+The fade animation requires 'termguicolors' and a terminal with true color
+support. When the option is off, the mode colors are applied without the
+fade.
+
+Display of the pending keys inside the statusline depends on 'showcmdloc'.
+When the option does not exist, the keys are shown in the command line, as in
+a default configuration.
+
+==============================================================================
+3. COMMANDS                                                   *vimhud-commands*
+
+                                                                  *:HudEnable*
+:HudEnable              Store the current value of 'statusline' and install
+                        the HUD. Nothing happens when the HUD is already
+                        active.
+
+                                                                 *:HudDisable*
+:HudDisable             Restore the value of 'statusline' stored by
+                        |:HudEnable| and stop all animation timers.
+
+                                                                  *:HudToggle*
+:HudToggle              Switch between the enabled and the disabled state.
+
+                                                               *:HudAnimation*
+:HudAnimation {on|off}  Enable or disable the fade on mode change. The
+                        setting is stored in |g:vimhud_animation|.
+
+==============================================================================
+4. OPTIONS                                                     *vimhud-options*
+
+All options are global variables and are read when the HUD is enabled. After a
+change at runtime, |:HudDisable| followed by |:HudEnable| applies the new
+values.
+
+                                                             *g:vimhud_enabled*
+g:vimhud_enabled        Number (default 1)
+                        When 0, the HUD is not installed at startup. The
+                        commands remain available.
+
+                                                           *g:vimhud_animation*
+g:vimhud_animation      Number (default 1)
+                        When 1, a mode change starts a color fade. When 0, no
+                        timers are created. The value 0 is recommended for
+                        slow remote connections.
+
+                                                              *g:vimhud_frames*
+g:vimhud_frames         Number (default 10)
+                        Number of steps of one fade.
+
+                                                            *g:vimhud_interval*
+g:vimhud_interval       Number (default 30)
+                        Time in milliseconds between two steps. With the
+                        default values a fade lasts about 300 ms.
+
+                                                               *g:vimhud_flash*
+g:vimhud_flash          String (default '#ffffff')
+                        Color from which a fade starts, in the form #rrggbb.
+
+                                                           *g:vimhud_show_keys*
+g:vimhud_show_keys      Number (default 1)
+                        When 1, the pending key sequence is displayed on the
+                        right side of the statusline.
+
+                                                              *g:vimhud_colors*
+g:vimhud_colors         Dictionary (default see below)
+                        Background color for each mode. The keys are the
+                        first character of the value returned by |mode()|.
+                        Missing keys keep their default value. >
+    g:vimhud_colors = {
+      n: '#3b82f6',
+      i: '#22c55e',
+      v: '#f59e0b',
+      R: '#ef4444',
+      c: '#a855f7',
+      t: '#14b8a6',
+    }
+<
+                                                                *g:vimhud_left*
+g:vimhud_left           List of strings (default ['mode', 'git', 'file'])
+                        Components of the left side, in display order. See
+                        |vimhud-components|.
+
+                                                               *g:vimhud_right*
+g:vimhud_right          List of strings (default ['keys', 'recording',
+                        'search', 'filetype', 'encoding', 'position'])
+                        Components of the right side, in display order.
+
+                                                                 *g:vimhud_git*
+g:vimhud_git            Number (default 1)
+                        When 0, the git component is hidden and no git
+                        process is started.
+
+                                                          *g:vimhud_git_symbol*
+g:vimhud_git_symbol     String (default '')
+                        Text placed before the branch name, for example a
+                        Nerd Font branch glyph.
+
+==============================================================================
+5. HIGHLIGHT GROUPS                                          *vimhud-highlight*
+
+The groups below are defined with the "default" argument, so a colorscheme or
+a user configuration takes precedence over the built-in definition.
+
+                                                                    *HudMode*
+HudMode         The mode block. The background is rewritten by the plugin on
+                every animation frame and on every mode change. A static
+                definition of this group is therefore replaced, and
+                |g:vimhud_colors| is the supported way of changing it.
+
+                                                                    *HudFile*
+HudFile         The file name segment.
+
+                                                                    *HudKeys*
+HudKeys         The pending key sequence.
+
+                                                                 *HudPending*
+HudPending      The key segment while a mapping is incomplete, for example
+                after the leader key has been pressed. This group relies on
+                |state()| and may behave differently between versions.
+
+                                                                 *HudInactive*
+HudInactive     The statusline of windows other than the current one.
+
+                                                                     *HudPos*
+HudPos          The position block. The background follows |HudMode|.
+
+                                                                    *HudFill*
+HudFill         The empty space between the left and the right side.
+
+                                                                     *HudGit*
+HudGit          The git segment.
+
+                                                                    *HudInfo*
+HudInfo         The search count, the file type and the encoding.
+
+                                                                   *HudAlert*
+HudAlert        The modified flag and the macro recording indicator.
+
+==============================================================================
+6. ANIMATION                                                 *vimhud-animation*
+
+A |ModeChanged| autocommand starts a repeating |timer_start()| with the
+interval |g:vimhud_interval| and the repeat count |g:vimhud_frames|. Each
+tick interpolates the red, green and blue channels linearly between
+|g:vimhud_flash| and the color of the new mode, applies the result to
+|HudMode| with |:highlight|, and calls |:redrawstatus|.
+
+A running fade is cancelled with |timer_stop()| when another mode change
+arrives, so that rapid switching does not produce overlapping fades.
+
+The animation is intentionally kept outside of g:HudLine(). Changing
+highlights during the evaluation of a statusline is a side effect that can
+cause redraw loops.
+
+==============================================================================
+7. INTERACTION WITH OTHER PLUGINS                        *vimhud-compatibility*
+
+The plugin sets 'statusline' for all windows. Plugins that manage the
+statusline themselves, such as dedicated statusline plugins, conflict with
+vimhud, and only one of them should be active. Setting g:vimhud_enabled to 0,
+or using |:HudDisable|, hands control back.
+
+The previous value of 'statusline' is stored by |:HudEnable| and restored by
+|:HudDisable|. Local values of 'statusline' set with |:setlocal| are not
+touched.
+
+==============================================================================
+8. LIMITATIONS                                              *vimhud-limitations*
+
+Timer callbacks run only while Vim waits for input, so the animation stalls
+during long blocking operations.
+
+Without true color support the fade is quantized into visible steps. For this
+reason the animation is disabled automatically when 'termguicolors' is off.
+
+Frequent redraws can cause flicker over slow connections. Setting
+|g:vimhud_animation| to 0 removes all timers.
+
+The behavior of |state()| and of 'showcmdloc' may differ between Vim versions,
+and the pending-state highlight should be verified on the target version.
+
+==============================================================================
+9. COMPONENTS                                               *vimhud-components*
+
+The lists |g:vimhud_left| and |g:vimhud_right| select and order the
+components. Unknown names are ignored, and a component without content is
+omitted.
+
+    mode        The mode block: NORMAL, INSERT, VISUAL, V-LINE, V-BLOCK,
+                REPLACE, COMMAND, TERMINAL, SELECT, and OP while an operator
+                is pending.
+    git         The branch, a "*" when tracked files are modified, and the
+                number of commits ahead of or behind the upstream.
+    file        The path relative to the working directory, "[+]" when
+                modified and "[RO]" when read-only.
+    keys        The pending key sequence, displayed through the %S item of
+                'statusline'. This requires 'showcmdloc'.
+    recording   "REC @q" while a macro is recorded in register q.
+    search      "[current/total]" while search highlighting is active.
+    filetype    The value of 'filetype'.
+    encoding    The file encoding and format, for example utf-8[unix].
+    position    Line, virtual column and percentage.
+
+The git state is determined asynchronously with |job_start()|, using the
+command "git status --porcelain=v1 -b --untracked-files=no". The call is
+started by the |BufEnter|, |BufWritePost|, |FocusGained|, |DirChanged| and
+|ShellCmdPost| events. Untracked files are excluded to keep the call fast in
+large repositories, so the "*" flag reflects tracked files only.
+
+==============================================================================
+ vim:tw=78:ts=8:ft=help:norl:
