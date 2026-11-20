@@ -53,7 +53,7 @@ const MODE_NAMES: dict<string> = {
 
 var active = false
 var keybox_on = false
-var key_hooked = false
+var sentinel_id = 0
 var keybox_id = 0
 var render_timer = -1
 var hide_timer = -1
@@ -497,15 +497,11 @@ def RenderKeyBox()
   hide_timer = timer_start(Opt('keybox_timeout', 2000), (_) => HideKeyBox())
 enddef
 
-# Called by Vim for every typed key. Arguments are read leniently, because
-# the signature differs between Vim versions.
-def KeyCallback(...args: list<any>)
-  if !keybox_on || empty(args) || getcmdtype() == '@'
+# Records one typed key. The key is what remains after mappings, because it
+# comes from a popup filter.
+def Capture(raw: string)
+  if !keybox_on || getcmdtype() == '@'
     return
-  endif
-  var raw: string = args[0]
-  if len(args) > 1 && type(args[1]) == v:t_string && args[1] != ''
-    raw = args[1]
   endif
   const label = KeyLabel(raw)
   if label == ''
@@ -521,6 +517,41 @@ def KeyCallback(...args: list<any>)
   endif
 enddef
 
+# Popup filter of the sentinel window. It sees every typed key and never
+# consumes one, so typing is not affected.
+def KeyFilter(id: number, key: string): bool
+  Capture(key)
+  return false
+enddef
+
+# The sentinel is a one-cell popup on the last cell of the statusline row. A
+# popup filter is called only while a popup is visible, so the sentinel has to
+# stay on the screen for as long as the key box is enabled.
+def PlaceSentinel()
+  if sentinel_id != 0 && !empty(popup_getpos(sentinel_id))
+    popup_move(sentinel_id, {line: &lines - &cmdheight, col: &columns})
+  endif
+enddef
+
+def OpenSentinel()
+  if sentinel_id != 0 && !empty(popup_getpos(sentinel_id))
+    return
+  endif
+  sentinel_id = popup_create(' ', {
+    pos: 'topleft',
+    line: &lines - &cmdheight,
+    col: &columns,
+    minwidth: 1,
+    maxwidth: 1,
+    minheight: 1,
+    maxheight: 1,
+    highlight: 'HudPos',
+    filter: KeyFilter,
+    zindex: 1,
+    wrap: false,
+  })
+enddef
+
 def EnsurePropTypes()
   for t in ['HudKeyCap', 'HudKeyOld']
     if empty(prop_type_get(t))
@@ -530,15 +561,12 @@ def EnsurePropTypes()
 enddef
 
 def StartKeyBox()
-  if !exists('*on_key')
+  if !has('popupwin')
     return
   endif
   EnsurePropTypes()
   keybox_on = true
-  if !key_hooked
-    on_key(KeyCallback)
-    key_hooked = true
-  endif
+  OpenSentinel()
 enddef
 
 def StopKeyBox()
@@ -556,6 +584,10 @@ def StopKeyBox()
     popup_close(keybox_id)
     keybox_id = 0
   endif
+  if sentinel_id != 0
+    popup_close(sentinel_id)
+    sentinel_id = 0
+  endif
 enddef
 
 def Recolor()
@@ -569,6 +601,8 @@ def SetupAutocmds()
     autocmd ModeChanged * OnModeChanged()
     autocmd BufEnter,BufWritePost,FocusGained,DirChanged,ShellCmdPost * UpdateGit()
     autocmd ColorScheme * Recolor()
+    autocmd VimResized * PlaceSentinel()
+    autocmd OptionSet cmdheight,laststatus PlaceSentinel()
   augroup END
 enddef
 
@@ -643,8 +677,8 @@ enddef
 export def Keybox(arg: string)
   if arg == 'on'
     g:vimhud_keybox = 1
-    if active && !exists('*on_key')
-      echomsg 'vimhud: the key box requires on_key(), which this Vim does not provide'
+    if active && !has('popupwin')
+      echomsg 'vimhud: the key box requires popup windows, which this Vim does not provide'
     elseif active
       StartKeyBox()
     endif

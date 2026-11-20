@@ -300,15 +300,21 @@ and Alt-x. Mouse and focus events are not shown. Keys typed at a prompt of
 |input()| or |inputsecret()| are not recorded. |:HudKeybox| can be used to
 switch the box off for other sensitive input.
 
-The box requires |on_key()|, which is available in Vim 9.1. Without it the
+Vim has no function that reports typed keys, so the box uses a popup filter. A
+one-cell popup, the sentinel, sits on the last cell of the statusline row, and
+its filter sees every typed key without consuming it. Keys are shown after
+mappings have been applied. Without popup support the
 plugin keeps the small pending-key display of the statusline, see the "keys"
 component in |vimhud-components|. The size of a character cell is set by the
 terminal, so the box cannot use a larger font. It is made more prominent with
 key caps, padding and bold type, and |g:vimhud_keybox_size| set to 'small'
 selects a single row.
 
-Some versions of Vim accept only one |on_key()| callback, so another plugin
-that registers one can replace the key box hook.
+A popup filter is not called for keys that a popup with a higher priority
+consumes, for example a popup menu. Escape sequences can delay the recognition
+of the Esc key, and ":set ttimeoutlen=100" avoids the delay. Some versions of
+Vim are reported to swallow CTRL-C when a visible popup has a filter, so
+:HudKeybox off is the first thing to try when an interrupt does not work.
 
 ==============================================================================
  vim:tw=78:ts=8:ft=help:norl:

@@ -8,7 +8,7 @@ The default mode indicator is a single line of text at the bottom of the screen,
 
 ## Requirements
 
-Vim 9.0 or later is required, and Vim 9.1 is recommended. Neovim is not supported, because it does not implement vim9script. The fade animation requires `termguicolors` and a terminal with true color support; without it the mode colors are still applied, but the fade is disabled automatically. Showing the pending keys inside the statusline depends on the `'showcmdloc'` option, which is checked at startup, and the display falls back to the command line when the option is missing. The key box requires the `on_key()` function, which is available in Vim 9.1.
+Vim 9.0 or later is required, and Vim 9.1 is recommended. Neovim is not supported, because it does not implement vim9script. The fade animation requires `termguicolors` and a terminal with true color support; without it the mode colors are still applied, but the fade is disabled automatically. Showing the pending keys inside the statusline depends on the `'showcmdloc'` option, which is checked at startup, and the display falls back to the command line when the option is missing. The key box requires popup windows (`+popupwin`), which any Vim 9 provides.
 
 ## Installation
 
@@ -86,7 +86,7 @@ Keys have readable names: `Esc`, `Enter`, `Space`, `Tab`, `Bksp`, arrow symbols,
 :HudKeybox on
 ```
 
-The box depends on the `on_key()` function of Vim 9.1. Without it the plugin falls back to the small pending-key display in the statusline. The size of a character cell is set by the terminal and cannot be changed from inside Vim, so the box is made more prominent with key caps, padding and bold type instead of a larger font. Setting `g:vimhud_keybox_size` to `'small'` returns to a single row.
+Vim has no built-in function that reports typed keys, so the box uses a popup filter. A one-cell popup, called the sentinel, sits on the last cell of the statusline row, and its filter sees every typed key without consuming it. Without popup support the plugin falls back to the small pending-key display in the statusline. Keys are shown after mappings have been applied, so a leader mapping appears as the keys it expands to and not as the leader key itself. The size of a character cell is set by the terminal and cannot be changed from inside Vim, so the box is made more prominent with key caps, padding and bold type instead of a larger font. Setting `g:vimhud_keybox_size` to `'small'` returns to a single row.
 
 ## Components
 
@@ -142,7 +142,7 @@ Animation is handled outside the statusline function. A `ModeChanged` autocomman
 
 ## Limitations
 
-Timer callbacks run only while Vim waits for input, so the animation stalls during blocking operations. Without true color support the fade is quantized into visible steps, which is the reason for the automatic fallback. The plugin replaces the statusline of all windows, so it conflicts with other plugins that set `'statusline'`; in this case `:HudDisable` or `g:vimhud_enabled = 0` should be used. The pending-state highlight relies on `state()` and may behave differently between Vim versions. The git component needs the `git` executable and is hidden when it is not found. The arrows in the git segment are UTF-8 characters, so `'encoding'` should be `utf-8`. Windows that define a local `'statusline'` are not affected by the HUD. Vim accepts only one `on_key()` callback in some versions, so another plugin that registers one can replace the key box hook.
+Timer callbacks run only while Vim waits for input, so the animation stalls during blocking operations. Without true color support the fade is quantized into visible steps, which is the reason for the automatic fallback. The plugin replaces the statusline of all windows, so it conflicts with other plugins that set `'statusline'`; in this case `:HudDisable` or `g:vimhud_enabled = 0` should be used. The pending-state highlight relies on `state()` and may behave differently between Vim versions. The git component needs the `git` executable and is hidden when it is not found. The arrows in the git segment are UTF-8 characters, so `'encoding'` should be `utf-8`. Windows that define a local `'statusline'` are not affected by the HUD. A popup filter is not called for keys that a popup with a higher priority consumes, for example the keys used in a popup menu. Escape sequences can delay the recognition of the Esc key, and `:set ttimeoutlen=100` avoids the delay. Some versions of Vim are reported to swallow CTRL-C when a visible popup has a filter, so `:HudKeybox off` is the first thing to try when an interrupt does not work.
 
 ## Repository layout
 
