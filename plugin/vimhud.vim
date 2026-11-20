@@ -17,6 +17,7 @@ command! -bar HudEnable vimhud.Enable()
 command! -bar HudDisable vimhud.Disable()
 command! -bar HudToggle vimhud.Toggle()
 command! -nargs=1 -complete=customlist,g:HudComplete HudAnimation vimhud.Animation(<q-args>)
+command! -nargs=1 -complete=customlist,g:HudComplete HudKeybox vimhud.Keybox(<q-args>)
 
 if get(g:, 'vimhud_enabled', 1) != 0
   vimhud.Enable()

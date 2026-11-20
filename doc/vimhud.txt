@@ -14,11 +14,12 @@ CONTENTS                                                      *vimhud-contents*
     7. Interaction with other plugins .......... |vimhud-compatibility|
     8. Limitations ............................. |vimhud-limitations|
     9. Components .............................. |vimhud-components|
+   10. Key box ................................. |vimhud-keybox|
 
 ==============================================================================
 1. INTRODUCTION                                           *vimhud-introduction*
 
-Vimhud replaces the 'statusline' with a bar that shows the current mode as
+Vimhud replaces the 'statusline' with a strip that shows the current mode as
 a colored block, the file name, and the pending key sequence, including the
 |mapleader| key. A change of mode starts a short color fade, which makes the
 transition visible in screencasts and while learning motions. The plugin is
@@ -61,6 +62,10 @@ a default configuration.
                                                                *:HudAnimation*
 :HudAnimation {on|off}  Enable or disable the fade on mode change. The
                         setting is stored in |g:vimhud_animation|.
+
+                                                                *:HudKeybox*
+:HudKeybox {on|off}     Show or hide the key box. The setting is stored in
+                        |g:vimhud_keybox|.
 
 ==============================================================================
 4. OPTIONS                                                     *vimhud-options*
@@ -132,6 +137,27 @@ g:vimhud_git_symbol     String (default '')
                         Text placed before the branch name, for example a
                         Nerd Font branch glyph.
 
+                                                              *g:vimhud_keybox*
+g:vimhud_keybox         Number (default 1)
+                        When 1, typed keys are shown in the key box.
+
+                                                      *g:vimhud_keybox_timeout*
+g:vimhud_keybox_timeout Number (default 2000)
+                        Time in milliseconds that the box stays visible
+                        after the last key.
+
+                                                          *g:vimhud_keybox_max*
+g:vimhud_keybox_max     Number (default 8)
+                        Maximum number of keys shown at once.
+
+                                                          *g:vimhud_keybox_pos*
+g:vimhud_keybox_pos     String (default 'center')
+                        Horizontal position: 'left', 'center' or 'right'.
+
+                                                         *g:vimhud_keybox_size*
+g:vimhud_keybox_size    String (default 'large')
+                        'large' draws three-row key caps, 'small' one row.
+
 ==============================================================================
 5. HIGHLIGHT GROUPS                                          *vimhud-highlight*
 
@@ -172,6 +198,18 @@ HudInfo         The search count, the file type and the encoding.
 
                                                                    *HudAlert*
 HudAlert        The modified flag and the macro recording indicator.
+
+                                                                  *HudKeyBox*
+HudKeyBox       The background of the key box.
+
+                                                                  *HudKeyCap*
+HudKeyCap       The newest key. Rewritten with the mode color, like |HudMode|.
+
+                                                                  *HudKeyOld*
+HudKeyOld       Older keys, a dimmed variant of the mode color.
+
+                                                               *HudKeyBorder*
+HudKeyBorder    The frame of the key box, in the mode color.
 
 ==============================================================================
 6. ANIMATION                                                 *vimhud-animation*
@@ -231,7 +269,8 @@ omitted.
     file        The path relative to the working directory, "[+]" when
                 modified and "[RO]" when read-only.
     keys        The pending key sequence, displayed through the %S item of
-                'statusline'. This requires 'showcmdloc'.
+                'statusline'. This requires 'showcmdloc'. The component is hidden while the
+                key box is active, see |vimhud-keybox|.
     recording   "REC @q" while a macro is recorded in register q.
     search      "[current/total]" while search highlighting is active.
     filetype    The value of 'filetype'.
@@ -243,6 +282,33 @@ command "git status --porcelain=v1 -b --untracked-files=no". The call is
 started by the |BufEnter|, |BufWritePost|, |FocusGained|, |DirChanged| and
 |ShellCmdPost| events. Untracked files are excluded to keep the call fast in
 large repositories, so the "*" flag reflects tracked files only.
+
+==============================================================================
+10. KEY BOX                                                      *vimhud-keybox*
+
+Typed keys are shown in a popup window at the bottom of the screen. Every key
+is drawn as a three-row key cap. The newest key uses |HudKeyCap|, older keys
+use |HudKeyOld|, and the frame uses |HudKeyBorder|. These groups follow the
+color of the current mode and take part in the fade, see |vimhud-animation|.
+
+The box stays visible for |g:vimhud_keybox_timeout| milliseconds after the
+last key, and every key restarts the timer. When it expires, the list of keys
+is cleared.
+
+Keys are shown by name: Esc, Enter, Space, Tab, Bksp, arrow symbols, Ctrl-w
+and Alt-x. Mouse and focus events are not shown. Keys typed at a prompt of
+|input()| or |inputsecret()| are not recorded. |:HudKeybox| can be used to
+switch the box off for other sensitive input.
+
+The box requires |on_key()|, which is available in Vim 9.1. Without it the
+plugin keeps the small pending-key display of the statusline, see the "keys"
+component in |vimhud-components|. The size of a character cell is set by the
+terminal, so the box cannot use a larger font. It is made more prominent with
+key caps, padding and bold type, and |g:vimhud_keybox_size| set to 'small'
+selects a single row.
+
+Some versions of Vim accept only one |on_key()| callback, so another plugin
+that registers one can replace the key box hook.
 
 ==============================================================================
  vim:tw=78:ts=8:ft=help:norl:

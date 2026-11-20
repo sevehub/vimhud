@@ -16,6 +16,27 @@ const DEFAULT_COLORS: dict<string> = {
 
 const CTERM_COLORS: dict<number> = {n: 4, i: 2, v: 3, R: 1, c: 5, t: 6}
 
+const KEY_NAMES: dict<string> = {
+  '<Esc>': 'Esc',
+  '<CR>': 'Enter',
+  '<NL>': 'Enter',
+  '<Space>': 'Space',
+  '<Tab>': 'Tab',
+  '<BS>': 'Bksp',
+  '<Del>': 'Del',
+  '<Up>': '↑',
+  '<Down>': '↓',
+  '<Left>': '←',
+  '<Right>': '→',
+  '<Home>': 'Home',
+  '<End>': 'End',
+  '<PageUp>': 'PgUp',
+  '<PageDown>': 'PgDn',
+  '<Insert>': 'Ins',
+  '<lt>': '<',
+  '<Bar>': '|',
+}
+
 const MODE_NAMES: dict<string> = {
   n: 'NORMAL',
   i: 'INSERT',
@@ -31,6 +52,12 @@ const MODE_NAMES: dict<string> = {
 # -------------------------------------------------------------------- state
 
 var active = false
+var keybox_on = false
+var key_hooked = false
+var keybox_id = 0
+var render_timer = -1
+var hide_timer = -1
+var keys_buf: list<string> = []
 var timer = -1
 var colors: dict<string> = {}
 var git_info: dict<string> = {}
@@ -60,6 +87,13 @@ enddef
 
 def ToHex(c: list<number>): string
   return printf('#%02x%02x%02x', c[0], c[1], c[2])
+enddef
+
+# Blends color a towards color b; pct is the share of b, from 0 to 100.
+def Mix(a: string, b: string, pct: number): string
+  const x = ParseHex(a)
+  const y = ParseHex(b)
+  return ToHex(range(3)->mapnew((_, i) => x[i] + (y[i] - x[i]) * pct / 100))
 enddef
 
 def Esc(s: string): string
@@ -115,6 +149,9 @@ def ApplyMode(hex: string)
   const cterm = get(CTERM_COLORS, ModeKey(), 4)
   execute $'highlight HudMode guibg={hex} guifg=#111111 ctermbg={cterm} ctermfg=0 gui=bold cterm=bold'
   execute $'highlight HudPos guibg={hex} guifg=#111111 ctermbg={cterm} ctermfg=0'
+  execute $'highlight HudKeyCap guibg={hex} guifg=#111111 ctermbg={cterm} ctermfg=0 gui=bold cterm=bold'
+  execute $'highlight HudKeyOld guibg={Mix(hex, "#1c1f27", 55)} guifg=#e5e7eb ctermbg=238 ctermfg=252'
+  execute $'highlight HudKeyBorder guibg=#1c1f27 guifg={hex} ctermbg=234 ctermfg={cterm}'
 enddef
 
 def DefineGroups()
@@ -126,6 +163,7 @@ def DefineGroups()
   highlight default HudInfo guibg=#353a4a guifg=#b0b6c8 ctermbg=238 ctermfg=250
   highlight default HudAlert guibg=#ef4444 guifg=#ffffff ctermbg=1 ctermfg=15 gui=bold cterm=bold
   highlight default HudInactive guibg=#1c1f27 guifg=#6b7280 ctermbg=234 ctermfg=243
+  highlight default HudKeyBox guibg=#1c1f27 guifg=#d0d4e0 ctermbg=234 ctermfg=252
 enddef
 
 # ---------------------------------------------------------------- animation
@@ -256,13 +294,13 @@ def CompFile(buf: number): string
     s ..= ' %#HudAlert#[+]%#HudFile#'
   endif
   if getbufvar(buf, '&readonly') != false
-     s ..= ' [RO]'
+    s ..= ' [RO]'
   endif
   return s .. ' %*'
 enddef
 
 def CompKeys(): string
-  if Opt('show_keys', 1) == 0 || !exists('+showcmdloc') || eval('&showcmdloc') != 'statusline'
+  if keybox_on || Opt('show_keys', 1) == 0 || !exists('+showcmdloc') || eval('&showcmdloc') != 'statusline'
     return ''
   endif
   const pending = state('m') != '' || mode() =~# '^no'
@@ -314,9 +352,9 @@ def Component(name: string, buf: number): string
   if name == 'mode'
     return CompMode()
   elseif name == 'git'
-     return CompGit(buf)
+    return CompGit(buf)
   elseif name == 'file'
-     return CompFile(buf)
+    return CompFile(buf)
   elseif name == 'keys'
     return CompKeys()
   elseif name == 'recording'
@@ -350,6 +388,175 @@ def g:HudLine(): string
 enddef
 
 # ------------------------------------------------------------------ control
+
+# ------------------------------------------------------------------ key box
+
+# Readable label for a typed key, or '' for keys that are not shown.
+def KeyLabel(raw: string): string
+  const k = keytrans(raw)
+  if k == ''
+    return ''
+  endif
+  if k =~# 'Mouse\|Drag\|Release\|ScrollWheel\|Focus\|CursorHold\|Ignore\|Plug\|SNR\|Paste\|Cmd>'
+    return ''
+  endif
+  if has_key(KEY_NAMES, k)
+    return KEY_NAMES[k]
+  endif
+  var m = matchlist(k, '^<C-\(.\)>$')
+  if !empty(m)
+    return 'Ctrl-' .. tolower(m[1])
+  endif
+  m = matchlist(k, '^<[MA]-\(.\)>$')
+  if !empty(m)
+    return 'Alt-' .. m[1]
+  endif
+  if k =~# '^<.*>$'
+    return k[1 : -2]
+  endif
+  return k
+enddef
+
+def HideKeyBox()
+  hide_timer = -1
+  keys_buf = []
+  if keybox_id != 0 && !empty(popup_getpos(keybox_id))
+    popup_hide(keybox_id)
+  endif
+enddef
+
+def KeyBoxCol(width: number): number
+  const where: string = Opt('keybox_pos', 'center')
+  if where == 'left'
+    return 1
+  elseif where == 'right'
+    return max([1, &columns - width + 1])
+  endif
+  return max([1, (&columns - width) / 2 + 1])
+enddef
+
+def RenderKeyBox()
+  render_timer = -1
+  if !keybox_on || empty(keys_buf)
+    return
+  endif
+  const large = Opt('keybox_size', 'large') != 'small'
+  const n = len(keys_buf)
+  var r1 = ''
+  var r2 = ''
+  var r3 = ''
+  var p1: list<dict<any>> = []
+  var p2: list<dict<any>> = []
+  var p3: list<dict<any>> = []
+  for i in range(n)
+    const cell = large ? '  ' .. keys_buf[i] .. '  ' : ' ' .. keys_buf[i] .. ' '
+    const w = strdisplaywidth(cell)
+    const kind = i == n - 1 ? 'HudKeyCap' : 'HudKeyOld'
+    if i > 0
+      r1 ..= ' '
+      r2 ..= ' '
+      r3 ..= ' '
+    endif
+    p1->add({col: strlen(r1) + 1, length: w, type: kind})
+    p2->add({col: strlen(r2) + 1, length: strlen(cell), type: kind})
+    p3->add({col: strlen(r3) + 1, length: w, type: kind})
+    r1 ..= repeat(' ', w)
+    r2 ..= cell
+    r3 ..= repeat(' ', w)
+  endfor
+  var rows: list<dict<any>> = [{text: r2, props: p2}]
+  if large
+    rows = [{text: r1, props: p1}, {text: r2, props: p2}, {text: r3, props: p3}]
+  endif
+  const width = strdisplaywidth(r2) + 4
+  const where = {pos: 'botleft', line: &lines - &cmdheight - 1, col: KeyBoxCol(width)}
+  if keybox_id == 0 || empty(popup_getpos(keybox_id))
+    var opts: dict<any> = {
+      pos: 'botleft',
+      line: where.line,
+      col: where.col,
+      padding: [0, 1, 0, 1],
+      border: [1, 1, 1, 1],
+      highlight: 'HudKeyBox',
+      borderhighlight: ['HudKeyBorder'],
+      zindex: 300,
+      wrap: false,
+    }
+    if &encoding == 'utf-8'
+      opts.borderchars = ['─', '│', '─', '│', '╭', '╮', '╯', '╰']
+    endif
+    keybox_id = popup_create(rows, opts)
+  else
+    popup_settext(keybox_id, rows)
+    popup_move(keybox_id, where)
+    popup_show(keybox_id)
+  endif
+  if hide_timer != -1
+    timer_stop(hide_timer)
+  endif
+  hide_timer = timer_start(Opt('keybox_timeout', 2000), (_) => HideKeyBox())
+enddef
+
+# Called by Vim for every typed key. Arguments are read leniently, because
+# the signature differs between Vim versions.
+def KeyCallback(...args: list<any>)
+  if !keybox_on || empty(args) || getcmdtype() == '@'
+    return
+  endif
+  var raw: string = args[0]
+  if len(args) > 1 && type(args[1]) == v:t_string && args[1] != ''
+    raw = args[1]
+  endif
+  const label = KeyLabel(raw)
+  if label == ''
+    return
+  endif
+  keys_buf->add(label)
+  const most: number = Opt('keybox_max', 8)
+  if len(keys_buf) > most
+    keys_buf->remove(0, len(keys_buf) - most - 1)
+  endif
+  if render_timer == -1
+    render_timer = timer_start(0, (_) => RenderKeyBox())
+  endif
+enddef
+
+def EnsurePropTypes()
+  for t in ['HudKeyCap', 'HudKeyOld']
+    if empty(prop_type_get(t))
+      prop_type_add(t, {highlight: t})
+    endif
+  endfor
+enddef
+
+def StartKeyBox()
+  if !exists('*on_key')
+    return
+  endif
+  EnsurePropTypes()
+  keybox_on = true
+  if !key_hooked
+    on_key(KeyCallback)
+    key_hooked = true
+  endif
+enddef
+
+def StopKeyBox()
+  keybox_on = false
+  if render_timer != -1
+    timer_stop(render_timer)
+    render_timer = -1
+  endif
+  if hide_timer != -1
+    timer_stop(hide_timer)
+    hide_timer = -1
+  endif
+  keys_buf = []
+  if keybox_id != 0
+    popup_close(keybox_id)
+    keybox_id = 0
+  endif
+enddef
 
 def Recolor()
   DefineGroups()
@@ -388,6 +595,9 @@ export def Enable()
   ApplyMode(ModeColor())
   SetupAutocmds()
   active = true
+  if Opt('keybox', 1) != 0
+    StartKeyBox()
+  endif
   UpdateGit()
   redrawstatus!
 enddef
@@ -398,6 +608,7 @@ export def Disable()
   endif
   active = false
   StopTimer()
+  StopKeyBox()
   augroup VimHud
     autocmd!
   augroup END
@@ -424,6 +635,22 @@ export def Animation(arg: string)
   elseif arg == 'off'
     g:vimhud_animation = 0
     StopTimer()
+  else
+    echoerr $'vimhud: expected "on" or "off", got "{arg}"'
+  endif
+enddef
+
+export def Keybox(arg: string)
+  if arg == 'on'
+    g:vimhud_keybox = 1
+    if active && !exists('*on_key')
+      echomsg 'vimhud: the key box requires on_key(), which this Vim does not provide'
+    elseif active
+      StartKeyBox()
+    endif
+  elseif arg == 'off'
+    g:vimhud_keybox = 0
+    StopKeyBox()
   else
     echoerr $'vimhud: expected "on" or "off", got "{arg}"'
   endif
