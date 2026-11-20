@@ -58,6 +58,7 @@ var keybox_id = 0
 var render_timer = -1
 var hide_timer = -1
 var keys_buf: list<string> = []
+var keys_modes: list<string> = []
 var timer = -1
 var colors: dict<string> = {}
 var git_info: dict<string> = {}
@@ -149,9 +150,17 @@ def ApplyMode(hex: string)
   const cterm = get(CTERM_COLORS, ModeKey(), 4)
   execute $'highlight HudMode guibg={hex} guifg=#111111 ctermbg={cterm} ctermfg=0 gui=bold cterm=bold'
   execute $'highlight HudPos guibg={hex} guifg=#111111 ctermbg={cterm} ctermfg=0'
-  execute $'highlight HudKeyCap guibg={hex} guifg=#111111 ctermbg={cterm} ctermfg=0 gui=bold cterm=bold'
-  execute $'highlight HudKeyOld guibg={Mix(hex, "#1c1f27", 55)} guifg=#e5e7eb ctermbg=238 ctermfg=252'
   execute $'highlight HudKeyBorder guibg=#1c1f27 guifg={hex} ctermbg=234 ctermfg={cterm}'
+enddef
+
+# One pair of key cap groups per mode, so that a key keeps the color of the
+# mode in which it was typed.
+def DefineKeyGroups()
+  for [k, hex] in items(colors)
+    const cterm = get(CTERM_COLORS, k, 4)
+    execute $'highlight HudKeyCap_{k} guibg={hex} guifg=#111111 ctermbg={cterm} ctermfg=0 gui=bold cterm=bold'
+    execute $'highlight HudKeyOld_{k} guibg={Mix(hex, "#1c1f27", 55)} guifg=#e5e7eb ctermbg=238 ctermfg=252'
+  endfor
 enddef
 
 def DefineGroups()
@@ -164,6 +173,7 @@ def DefineGroups()
   highlight default HudAlert guibg=#ef4444 guifg=#ffffff ctermbg=1 ctermfg=15 gui=bold cterm=bold
   highlight default HudInactive guibg=#1c1f27 guifg=#6b7280 ctermbg=234 ctermfg=243
   highlight default HudKeyBox guibg=#1c1f27 guifg=#d0d4e0 ctermbg=234 ctermfg=252
+  DefineKeyGroups()
 enddef
 
 # ---------------------------------------------------------------- animation
@@ -420,6 +430,7 @@ enddef
 def HideKeyBox()
   hide_timer = -1
   keys_buf = []
+  keys_modes = []
   if keybox_id != 0 && !empty(popup_getpos(keybox_id))
     popup_hide(keybox_id)
   endif
@@ -451,7 +462,7 @@ def RenderKeyBox()
   for i in range(n)
     const cell = large ? '  ' .. keys_buf[i] .. '  ' : ' ' .. keys_buf[i] .. ' '
     const w = strdisplaywidth(cell)
-    const kind = i == n - 1 ? 'HudKeyCap' : 'HudKeyOld'
+    const kind = (i == n - 1 ? 'HudKeyCap_' : 'HudKeyOld_') .. keys_modes[i]
     if i > 0
       r1 ..= ' '
       r2 ..= ' '
@@ -508,9 +519,12 @@ def Capture(raw: string)
     return
   endif
   keys_buf->add(label)
+  keys_modes->add(ModeKey())
   const most: number = Opt('keybox_max', 8)
-  if len(keys_buf) > most
-    keys_buf->remove(0, len(keys_buf) - most - 1)
+  const extra = len(keys_buf) - most
+  if extra > 0
+    keys_buf->remove(0, extra - 1)
+    keys_modes->remove(0, extra - 1)
   endif
   if render_timer == -1
     render_timer = timer_start(0, (_) => RenderKeyBox())
@@ -553,10 +567,13 @@ def OpenSentinel()
 enddef
 
 def EnsurePropTypes()
-  for t in ['HudKeyCap', 'HudKeyOld']
-    if empty(prop_type_get(t))
-      prop_type_add(t, {highlight: t})
-    endif
+  for m in ['n', 'i', 'v', 'R', 'c', 't']
+    for prefix in ['HudKeyCap_', 'HudKeyOld_']
+      const t = prefix .. m
+      if empty(prop_type_get(t))
+        prop_type_add(t, {highlight: t})
+      endif
+    endfor
   endfor
 enddef
 
@@ -580,6 +597,7 @@ def StopKeyBox()
     hide_timer = -1
   endif
   keys_buf = []
+  keys_modes = []
   if keybox_id != 0
     popup_close(keybox_id)
     keybox_id = 0
